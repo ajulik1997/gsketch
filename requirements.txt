@@ -1,0 +1,5 @@
+argparse==1.4.0
+matplotlib==3.5.2
+pillow==9.1.0
+tqdm==4.64.0
+numpy==1.22.3
