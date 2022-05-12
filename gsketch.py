@@ -64,7 +64,7 @@ def generate_postamble(profile):
             
 ###############################################################################
             
-def process_image(bits, colour, home, image, nudge, offset, resolution, size, zsafe, zdraw, feed):
+def process_image(bits, colour, home, image, nudge, offset, resolution, size, zsafe, zdraw, feed, max_size):
     """
     Generates the main bulk of the G-code by processing image into a list of "dot" movements
     ----------
@@ -80,6 +80,7 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
         zsafe       float                       safe movement height above pen home for non-draw pen moves in mm
         zdraw       float                       pen draw height below home in mm
         feed        dict {str: float}           movement feed values for xy and z moves
+        max_size    dict {str: float}           maximum printing volume size in each dimension
     ----------
     returns:
         content     list [str]                  list of G-code strings, one string per line
@@ -160,6 +161,9 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
                     pts[chan] += pts_tmp[chan]                                                                          # merge list in temporary array to the corresponding list of the final array
             progress.update(arr_nbit.shape[1])                                                                          # update progress bar after each row has been processed
     print( "<< Generated point count per channel: C={} M={} Y={} K={}".format(*[len(x_pts[chan]) for chan in channels.keys()]))
+    
+    if any([any(np.array(sum(dim.values(), [])) > max_size[lbl]) for dim, lbl in zip([x_pts, y_pts], ["x", "y"])]):     # if any generated point in x or y dimension exceeds maximum print size in that dimension
+        print("!! WARNING: One or more generated points exceed machine size limits")                                    # ... print warning for user (machine should truncate such move requests, but image will not appear as expected)
 
     print( ">> Plotting per-channel reconstruction")
     fig, axes = plt.subplots(ncols=len(active_channels), nrows=3, figsize=(3*len(active_channels) + 1, 10))             # create figure with nx3 axis, n for each colour and 3 for each representation of that channel
@@ -338,7 +342,8 @@ if __name__ == "__main__":
         
         feed = {"xy": min(profile["max_feed"]["x"], profile["max_feed"]["y"]) * args.feed * args.feed_mult,             # compute the xy move feed according to the specified machine limits, requested feed and multiplier
                 "z": profile["max_feed"]["z"] * args.feed * args.feed_mult}                                             # ... also compute the z move feed
-        content = process_image(args.bits, args.colour, args.home, args.image, args.nudge, args.offset, args.resolution, args.size, args.zsafe, args.zdraw, feed)   # process image and generate main bulk of G-code
+        content = process_image(args.bits, args.colour, args.home, args.image, args.nudge, args.offset,                 # process image and generate main bulk of G-code
+                                args.resolution, args.size, args.zsafe, args.zdraw, feed, profile["max_size"])
         
         with open("sketch.gcode", "w") as gcode:                                                                        # open output file for writing
             gcode.write("\n".join(preamble))                                                                            # write the preamble, separating each string by a newline
