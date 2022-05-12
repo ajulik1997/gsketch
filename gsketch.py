@@ -15,6 +15,12 @@ profiles = {"prusa-mk3s+": {"max_acc":  {"x": 1000.0, "y": 1000.0, "z": 200.0, "
                             "max_jerk": {"x":    8.0, "y":    8.0, "z":   0.4},                                         # maximum jerk
                             "max_size": {"x":  250.0, "y":  210.0, "z": 210.0},                                         # print volume limits
                             "feed"    : {"xy": 200.0 * 60,         "z": 12.0 * 60}}}                                    # move feed to use (in minutes)
+
+# define properties (name, colour) of each channel 
+channels = {"C": {"name": "Cyan",    "colour": [0, 1, 1]},
+            "M": {"name": "Magenta", "colour": [1, 0, 1]},
+            "Y": {"name": "Yellow",  "colour": [1, 1, 0]},
+            "K": {"name": "Key",     "colour": [0, 0, 0]}}
     
 ###############################################################################
 
@@ -90,7 +96,7 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
     print(f"Z DRAW HEIGHT: {zdraw}mm from home")                                                                        # ... z height below home for draw moves
     print(f"FEED RATE:     {feed}")                                                                                     # ... feed rate in {'xy': xy, 'z': z} format
     print(f"{'='*50}")                                                                                                  # ... summary footer
-    
+        
     with Image.open(image) as img:                                                                                      # open image using PIL
         print(f">> Loading image {image}")
         
@@ -123,54 +129,50 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
     print( "<< Updated image per-channel limits to C={} M={} Y={} K={}".format(*[(arr_nbit[:, :, chan].min(), arr_nbit[:, :, chan].max()) for chan in range(arr_nbit.shape[2])]))
 
     print( ">> Plotting individual CMYK channels")
+    active_channels = (["Y", "M", "C"] if 'cmy' in colour else []) + (["K"] if colour in ['grayscale', 'cmyk'] else []) # compute a list of all active channels as per the colour requirements, in printing order
     fig, axes = plt.subplots(ncols=4, figsize=(13, 3.5))                                                                # create figure with 4 axis that will contain one CMYK channel each
-    for chan_id, (rgb, key, lbl, stat) in enumerate(zip([[0, 1, 1], [1, 0, 1], [1, 1, 0], [0, 0, 0]],                   # iterate over ... CMYK colours in RGB representated as a list of floats (chan_id represents the index of iteration)
-                                                        ["c",       "m",       "y",       "k"],                         # ... dictionary keys for each channel
-                                                        ["Cyan",    "Magenta", "Yellow",  "Key"],                       # ... colours names as labels, and below, ... status of whether each channel is enabled or disabled with respect to colour requirements
-                                                        ["ENABLED" if "cmy" in colour else "DISABLED"]*3 + ["ENABLED" if colour in ["grayscale", "cmyk"] else "DISABLED"])):
-        colours = [rgb + [0], rgb + [1]]                                                                                # convert RGB to two RGBA points of maximum and minimum transparency
-        cmap = LinearSegmentedColormap.from_list(lbl, colours)                                                          # construct matplotlib colourmap with the two RGBA points at each end
+    for chan_id, chan in enumerate(channels.keys()):                                                                    # iterate over all known channels
+        colours = [channels[chan]["colour"] + [0], channels[chan]["colour"] + [1]]                                      # convert RGB colour to two RGBA colours of maximum and minimum transparency 
+        cmap = LinearSegmentedColormap.from_list(channels[chan]["name"], colours)                                       # construct matplotlib colourmap with the two RGBA colours at each end
         axes[chan_id].imshow(arr_downscaled[:, :, chan_id], cmap=cmap, clim=(0, 255))                                   # plot image of a single colour channel, using a colourmap of colours representing that channel
-        axes[chan_id].set_title(f"{lbl} ({stat})")                                                                      # set title of the axis as colour name and enabled/disabled status
+        axes[chan_id].set_title(f"{channels[chan]['name']} ({'ENABLED' if chan in active_channels else 'DISABLED'})")   # set title of the axis as colour name and enabled/disabled status
         axes[chan_id].set_xticks([])                                                                                    # remove all x-ticks, they are simply chunk numbers which are not informative to the user
         axes[chan_id].set_yticks([])                                                                                    # also remove all y-ticks
     plt.tight_layout()                                                                                                  # minimize border space in the figure
     plt.show()                                                                                                          # show figure to user
 
-    x_pts = {"c": [], "m": [], "y": [], "k": []}                                                                        # create a dict that will contain the x-coordinates in real space of each point for each channel
-    y_pts = {"c": [], "m": [], "y": [], "k": []}                                                                        # create a matching dict of y-points, these are separated for ease of plotting
+    x_pts = {chan: [] for chan in channels.keys()}                                                                      # create a dict that will contain the x-coordinates in real space of each point for each channel
+    y_pts = {chan: [] for chan in channels.keys()}                                                                      # create a matching dict of y-points, these are separated for ease of plotting
     reverse = True                                                                                                      # as the arrays are read top-down and left-to-right, every second left-to-right list needs to be reversed to minimize pen move distance
     
     with tqdm(total=arr_nbit.shape[0]*arr_nbit.shape[1], desc=">> Generating dots for per chunk", ascii=True) as progress:  # using a progress bar that tracks the percentage of the array that has been traversed
         for y in range(0, arr_nbit.shape[0]):                                                                           # iterate top-down over the y-axis
             reverse = not reverse                                                                                       # every second left-to-right list will reversed to minimise pen move distance
-            x_pts_tmp = {"c": [], "m": [], "y": [], "k": []}                                                            # create a temporary dict for per-channel x-points, this will later be reversed if necessary and joined with the main x_pts dict
-            y_pts_tmp = {"c": [], "m": [], "y": [], "k": []}                                                            # as above but for y-coordinates of each dot
+            x_pts_tmp = {chan: [] for chan in channels.keys()}                                                          # create a temporary dict for per-channel x-points, this will later be reversed if necessary and joined with the main x_pts dict
+            y_pts_tmp = {chan: [] for chan in channels.keys()}                                                          # as above but for y-coordinates of each dot
             for x in range(0, arr_nbit.shape[1]):                                                                       # now iterate left-to-right over each horizontal chunk
-                for chan_id, chan in enumerate(["c", "m", "y", "k"]):                                                   # iterate over strings that represent dict keys for each channel
+                for chan_id, chan in enumerate(active_channels):                                                        # iterate over all active channels
                     for dim, target in zip([x, y], [x_pts_tmp[chan], y_pts_tmp[chan]]):                                 # iterate over the x and y dimension, each iteration contains the current index of that dimension as well as the target list for that dimension
                         target += list(np.random.uniform(dim * resolution, (dim + 1) * resolution, arr_nbit[y, x, chan_id]))    # generate as many points in real space of the corresponding dimension (x, then y) between the current and next index as the number stored at the current array coordinate
-            for chan in ["c", "m", "y", "k"]:                                                                           # iterate again over each CMYK dict key
+            for chan in active_channels:                                                                                # iterate again over each active channel
                 for pts, pts_tmp in zip([x_pts, y_pts], [x_pts_tmp, y_pts_tmp]):                                        # iterate also over each dimension, where each iteration contains the final and temporary array of the corresponding dimension
                     if reverse: pts_tmp[chan].reverse()                                                                 # if necessary, reverse the list of x or y points
                     pts[chan] += pts_tmp[chan]                                                                          # merge list in temporary array to the corresponding list of the final array
             progress.update(arr_nbit.shape[1])                                                                          # update progress bar after each row has been processed
-    print( "<< Generated point count per channel: C={} M={} Y={} K={}".format(*[len(x_pts[chan]) for chan in ["c", "m", "y", "k"]]))
-    
+    print( "<< Generated point count per channel: C={} M={} Y={} K={}".format(*[len(x_pts[chan]) for chan in channels.keys()]))
+
     print( ">> Plotting per-channel reconstruction")
-    fig, axes = plt.subplots(ncols=4, nrows=3, figsize=(13, 10))                                                        # create figure with 4x3=12 axis, 4 for each colour and 3 for each representation of that channel
-    # set row and column labels, colums labelled by colour name and whether that colour channel is enabled or not, and rows labelled by three representations of the image
-    axes[0, 0].xaxis.set_label_position('top'); axes[0, 0].set_xlabel(f"Cyan ({'ENABLED' if 'cmy' in colour else 'DISABLED'})")
-    axes[0, 1].xaxis.set_label_position('top'); axes[0, 1].set_xlabel(f"Magenta ({'ENABLED' if 'cmy' in colour else 'DISABLED'})")
-    axes[0, 2].xaxis.set_label_position('top'); axes[0, 2].set_xlabel(f"Yellow ({'ENABLED' if 'cmy' in colour else 'DISABLED'})")
-    axes[0, 3].xaxis.set_label_position('top'); axes[0, 3].set_xlabel(f"Key ({'ENABLED' if colour in ['grayscale', 'cmyk'] else 'DISABLED'})")
-    axes[0, 0].set_ylabel("Downscaled")                                                                                 # downscaled represents the image after it has been been scaled down to per-chunk instead of per-pixel
-    axes[1, 0].set_ylabel("Adjusted depth")                                                                             # adjusted depth represents the image after its bit-depth is reduced to {bits}
-    axes[2, 0].set_ylabel("Reconstruction")                                                                             # finally, the reconstruction represents the dots drawn per chunk per channel in order to reconstruct the image
-    for chan_id, chan in enumerate(["c", "m", "y", "k"]):                                                               # iterate again over each channel key string
+    fig, axes = plt.subplots(ncols=len(active_channels), nrows=3, figsize=(3*len(active_channels) + 1, 10))             # create figure with nx3 axis, n for each colour and 3 for each representation of that channel
+    if axes.ndim == 1: axes = np.expand_dims(axes, axis=1)                                                              # if only a single channel is active, axes will be 1D, add a dimension so it can be treated as 2D
+    for chan_id, chan in enumerate(active_channels):                                                                    # iterate over all active channels in order to apply column headings
+        axes[0, chan_id].xaxis.set_label_position('top')                                                                # set column label position as top to act as a pseudo-title
+        axes[0, chan_id].set_xlabel(channels[chan]["name"])                                                             # set column heading to channel name
+    for row_id, lbl in enumerate(["Downscaled", "Adjusted depth", "Reconstruction"]):                                   # iterate over row heading labels
+        axes[row_id, 0].set_ylabel(lbl)                                                                                 # set row heading as y-label
+    for chan_id, chan in enumerate(active_channels):                                                                    # iterate again over each channel key string
         axes[0, chan_id].imshow(arr_downscaled[:, :, chan_id], cmap="gist_yarg", clim=(0, 255))                         # the top row of axis will show each channel of the downscaled image array
         axes[1, chan_id].imshow(arr_nbit[:, :, chan_id], cmap="gist_yarg", clim=(0, 2**bits - 1))                       # the middle row will instead display the bit-depth-reduced arrays
-        axes[2, chan_id].plot(x_pts[chan], y_pts[chan], marker=".", c="k", ms=1, alpha=0.25, ls=None, lw=0)             # for the final row, each computed point is drawn as a small circle with transparency
+        axes[2, chan_id].plot(x_pts[chan], y_pts[chan], marker=".", c="k", ms=1, alpha=1/3, ls=None, lw=0)              # for the final row, each computed point is drawn as a small circle with transparency
         axes[2, chan_id].set_xlim(0, size['x'])                                                                         # x-limits for the final row are adjusted to match those produced by imshow
         axes[2, chan_id].set_ylim(size['y'], 0)                                                                         # ... same for the y-limits
         axes[2, chan_id].set_aspect("equal")                                                                            # enforce equal aspect ratio so the dot-reconstructed image ins't stretched
@@ -180,12 +182,11 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
             ax.set_yticks([])                                                                                           # also disable ticks on the y-axis
     plt.tight_layout()                                                                                                  # recompute borders for a tigther layout
     plt.show()                                                                                                          # show image to user
-    
+
     print( ">> Plotting full image reconstruction")
     fig, ax = plt.subplots(figsize=(8, 8))                                                                              # create yet another figure, this time contianing only a single axis which will in turn contain points for all colours for a final reconstruction of the image
-    for chan, rgb in zip(["y",       "m",       "c",       "k"],                                                        # iterate over channel keys ...
-                         ["#FFFF00", "#FF00FF", "#00FFFF", "#000000"]):                                                 # ... as well as their corresponding RGB strings
-        ax.plot(x_pts[chan], y_pts[chan], marker=".", c=rgb, ms=1, alpha=0.5, ls=None, lw=0)                            # for each channel, draw points of that colour
+    for chan in active_channels:                                                                                        # iterate over active channels
+        ax.plot(x_pts[chan], y_pts[chan], marker=".", c=channels[chan]["colour"], ms=1, alpha=1/3, ls=None, lw=0)       # for each channel, draw points of that colour
     ax.set_title("Full image reconstruction")                                                                           # set figure title
     ax.set_xlim(0, size['x'])                                                                                           # set x-axis limits so that the resulting image is the right way up
     ax.set_ylim(size['y'], 0)                                                                                           # ... same for the y-axis
@@ -196,12 +197,11 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
     plt.show()                                                                                                          # show image to user
     
     gcode = []                                                                                                          # empty list will contain a string for each line of G-code
-    channels = (["y", "m", "c"] if 'cmy' in colour else []) + (["k"] if colour in ['grayscale', 'cmyk'] else [])        # compute a list of all active channels as per the colour requirements, and this time iterate over only these keys
-    total_points = sum(len(x_pts[chan]) for chan in channels)                                                           # total points to be converted to gcode is simply the sum of all x (or y) points for each channel
+    total_points = sum(len(x_pts[chan]) for chan in active_channels)                                                    # total points to be converted to gcode is simply the sum of all x (or y) points for each active channel
     completed_points = 0                                                                                                # here we will keep track of the total number of points processed so far
     last_percentage = 0                                                                                                 # this is the last percentage update sent to the printer, needed so that redundant percentage updates are not sent
     with tqdm(total=total_points, desc=">> Generating G-code", ascii=True) as progress:                                 # create a progress bar for this point to G-code conversion, with progress tracked by the number of points processed
-        for chan, nudge_x, nudge_y in zip(channels,                                                                     # iterate over each active channel, and for each channel also add successive nudges so that pen home colours aren't contaminated
+        for chan, nudge_x, nudge_y in zip(active_channels,                                                              # iterate over each active channel, and for each channel also add successive nudges so that pen home colours aren't contaminated
                                           [0,   nudge,     0, nudge],                                                   # nudges in the x-direction
                                           [0,   0,     nudge, nudge]):                                                  # ... as well as the y-direction, together they form a grid of 4 colours separated by {nudge} mm in the horizontal and vertical direction
             if len(x_pts[chan]) == 0: continue                                                                          # if the channel to be processed is empty, ignore it and skip that channel altogether (inclding colour change movements)
