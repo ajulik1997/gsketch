@@ -96,6 +96,7 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
     print(f"Z SAFE HEIGHT: {zsafe}mm from home")                                                                        # ... safe z height above home for pen movement
     print(f"Z DRAW HEIGHT: {zdraw}mm from home")                                                                        # ... z height below home for draw moves
     print(f"FEED RATE:     {feed}")                                                                                     # ... feed rate in {'xy': xy, 'z': z} format
+    print(f"PRINT AREA:    {max_size}")                                                                                 # ... maximum print area (not image area) in mm in {'x': x, 'y': y, 'z': z} format
     print(f"{'='*50}")                                                                                                  # ... summary footer
         
     with Image.open(image) as img:                                                                                      # open image using PIL
