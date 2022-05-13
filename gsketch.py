@@ -17,10 +17,10 @@ profiles = {"prusa-mk3s+": {"max_acc":  {"x": 1000.0, "y": 1000.0, "z": 200.0, "
                             "feed"    : {"xy": 200.0 * 60,         "z": 12.0 * 60}}}                                    # move feed to use (in minutes)
 
 # define properties (name, colour) of each channel 
-channels = {"C": {"name": "Cyan",    "colour": [0, 1, 1]},
-            "M": {"name": "Magenta", "colour": [1, 0, 1]},
-            "Y": {"name": "Yellow",  "colour": [1, 1, 0]},
-            "K": {"name": "Key",     "colour": [0, 0, 0]}}
+channels = {"C": {"name": "Cyan",    "colour": [0, 1, 1], "arr_idx": 0},
+            "M": {"name": "Magenta", "colour": [1, 0, 1], "arr_idx": 1},
+            "Y": {"name": "Yellow",  "colour": [1, 1, 0], "arr_idx": 2},
+            "K": {"name": "Key",     "colour": [0, 0, 0], "arr_idx": 3}}
     
 ###############################################################################
 
@@ -64,12 +64,13 @@ def generate_postamble(profile):
             
 ###############################################################################
             
-def process_image(bits, colour, home, image, nudge, offset, resolution, size, zsafe, zdraw, feed, max_size):
+def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, size, zsafe, zdraw, feed, max_size):
     """
     Generates the main bulk of the G-code by processing image into a list of "dot" movements
     ----------
     args:
         bits        int                         number of bits per channel that will represent up top 2**{bits} shades per channel
+        bits_k      int                         number of bits for K channel if CMYK colour mode in use
         colour      str                         colour mode that determines which channels get printed, one of ['grayscale', 'cmy', 'cmyk']
         home        dict {str: float}           absolute coordinates in mm of the home position for the pen
         image       str                         string representing the absolute or relative path of the image to process
@@ -87,6 +88,7 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
     """
     print(f"{'='*20} SETTINGS {'='*20}")                                                                                # print summary of settings: header
     print(f"BITS:          {bits} (up to {2**bits - 1:.0f} dots per channel per chunk)")                                # ... number of bits for representing colour, 2**bits gives total possible shades per channel
+    if colour == 'cmyk': print(f"BITS (K):      {bits_k} (up to {2**bits_k - 1:.0f} dots per chunk)")                   # ... number of bits for representing key channel colours if CMYK colour mode is used
     print(f"COLOUR MODE:   {colour}")                                                                                   # ... colour mode, one of ['grayscale', 'cmy', 'cmyk']
     print(f"PEN HOME:      {home}")                                                                                     # ... coordinates of pen home in {'x': x, 'y': y, 'z': z} format
     print(f"COLOUR NUDGE:  {nudge} mm")                                                                                 # ... nudge of inidividual colour homes in mm
@@ -126,20 +128,22 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
     print( "<< Per-channel limits identified as: C={} M={} Y={} K={}".format(*[(arr_downscaled[:, :, chan].min(), arr_downscaled[:, :, chan].max()) for chan in range(arr_downscaled.shape[2])]))
     print(f"<< Updated image array size to {arr_downscaled.shape}")
     
-    print(f">> Updating upper array limit (255 -> {bits**2 - 1})")
-    arr_nbit = np.floor(arr_downscaled / (256 / 2**bits)).astype(int)                                                   # lower the per-chanel bit-depth to that specifed by {bits}
+    print(f">> Updating upper array limit (CMY: 255 -> {bits**2 - 1}, K: 255 -> {bits_k**2 - 1})")
+    arr_nbit = np.zeros_like(arr_downscaled, dtype=int)                                                                 # create empty array of ints with the same shape as the image array
+    arr_nbit[:, :, :3] = np.floor(arr_downscaled[:, :, :3] / (256 / 2**bits))                                           # lower the per-chanel bit-depth of CMY channels to that specifed by {bits}
+    arr_nbit[:, :, 3] = np.floor(arr_downscaled[:, :, 3] / (256 / 2**bits_k))                                           # lower the per-chanel bit-depth of K channel to that specifed by {bits_k}
     print( "<< Updated image per-channel limits to C={} M={} Y={} K={}".format(*[(arr_nbit[:, :, chan].min(), arr_nbit[:, :, chan].max()) for chan in range(arr_nbit.shape[2])]))
 
     print( ">> Plotting individual CMYK channels")
     active_channels = (["Y", "M", "C"] if 'cmy' in colour else []) + (["K"] if colour in ['grayscale', 'cmyk'] else []) # compute a list of all active channels as per the colour requirements, in printing order
     fig, axes = plt.subplots(ncols=4, figsize=(13, 3.5))                                                                # create figure with 4 axis that will contain one CMYK channel each
-    for chan_id, chan in enumerate(channels.keys()):                                                                    # iterate over all known channels
-        colours = [channels[chan]["colour"] + [0], channels[chan]["colour"] + [1]]                                      # convert RGB colour to two RGBA colours of maximum and minimum transparency 
-        cmap = LinearSegmentedColormap.from_list(channels[chan]["name"], colours)                                       # construct matplotlib colourmap with the two RGBA colours at each end
-        axes[chan_id].imshow(arr_downscaled[:, :, chan_id], cmap=cmap, clim=(0, 255))                                   # plot image of a single colour channel, using a colourmap of colours representing that channel
-        axes[chan_id].set_title(f"{channels[chan]['name']} ({'ENABLED' if chan in active_channels else 'DISABLED'})")   # set title of the axis as colour name and enabled/disabled status
-        axes[chan_id].set_xticks([])                                                                                    # remove all x-ticks, they are simply chunk numbers which are not informative to the user
-        axes[chan_id].set_yticks([])                                                                                    # also remove all y-ticks
+    for chan, chan_props in channels.items():                                                                           # iterate over all known channels
+        colours = [chan_props["colour"] + [0], chan_props["colour"] + [1]]                                              # convert RGB colour to two RGBA colours of maximum and minimum transparency 
+        cmap = LinearSegmentedColormap.from_list(chan_props["name"], colours)                                           # construct matplotlib colourmap with the two RGBA colours at each end
+        axes[chan_props["arr_idx"]].imshow(arr_downscaled[:, :, chan_props["arr_idx"]], cmap=cmap, clim=(0, 255))       # plot image of a single colour channel, using a colourmap of colours representing that channel
+        axes[chan_props["arr_idx"]].set_title(f"{chan_props['name']} ({'ENABLED' if chan in active_channels else 'DISABLED'})")  # set title of the axis as colour name and enabled/disabled status
+        axes[chan_props["arr_idx"]].set_xticks([])                                                                      # remove all x-ticks, they are simply chunk numbers which are not informative to the user
+        axes[chan_props["arr_idx"]].set_yticks([])                                                                      # also remove all y-ticks
     plt.tight_layout()                                                                                                  # minimize border space in the figure
     plt.show()                                                                                                          # show figure to user
 
@@ -153,9 +157,9 @@ def process_image(bits, colour, home, image, nudge, offset, resolution, size, zs
             x_pts_tmp = {chan: [] for chan in channels.keys()}                                                          # create a temporary dict for per-channel x-points, this will later be reversed if necessary and joined with the main x_pts dict
             y_pts_tmp = {chan: [] for chan in channels.keys()}                                                          # as above but for y-coordinates of each dot
             for x in range(0, arr_nbit.shape[1]):                                                                       # now iterate left-to-right over each horizontal chunk
-                for chan_id, chan in enumerate(active_channels):                                                        # iterate over all active channels
+                for chan in active_channels:                                                                            # iterate over all active channels
                     for dim, target in zip([x, y], [x_pts_tmp[chan], y_pts_tmp[chan]]):                                 # iterate over the x and y dimension, each iteration contains the current index of that dimension as well as the target list for that dimension
-                        target += list(np.random.uniform(dim * resolution, (dim + 1) * resolution, arr_nbit[y, x, chan_id]))    # generate as many points in real space of the corresponding dimension (x, then y) between the current and next index as the number stored at the current array coordinate
+                        target += list(np.random.uniform(dim * resolution, (dim + 1) * resolution, arr_nbit[y, x, channels[chan]['arr_idx']]))  # generate as many points in real space of the corresponding dimension (x, then y) between the current and next index as the number stored at the current array coordinate
             for chan in active_channels:                                                                                # iterate again over each active channel
                 for pts, pts_tmp in zip([x_pts, y_pts], [x_pts_tmp, y_pts_tmp]):                                        # iterate also over each dimension, where each iteration contains the final and temporary array of the corresponding dimension
                     if reverse: pts_tmp[chan].reverse()                                                                 # if necessary, reverse the list of x or y points
@@ -251,6 +255,7 @@ def setup_argparse():
     parser = ArgumentParser(description="Script that converts images into gcode sketches")
     parser.add_argument('-0', '--home',       action="store", type=float, nargs=3, required=False, default=[40.0, 48.0, 2.0], help="Pen home coordinates [x, y, z]")
     parser.add_argument('-b', '--bits',       action="store", type=int,            required=False, default=3,                 help="Printed image bit-depth (draw up to 2**{bits} dots per chunk)")
+    parser.add_argument('-B', '--bits_k',     action="store", type=int,            required=False, default=2,                 help="Bit depth of K channel when printing CMYK (0 to use same value as --bits)")
     parser.add_argument('-c', '--colour',     action="store", type=str,            required=False, default="grayscale",       help="Colour mode in which image will be processed (one of ['grayscale', 'cmy', 'cmyk'])")
     parser.add_argument('-f', '--feed',       action="store", type=float,          required=False, default=1.0,               help="Move feed as a multiplier of max feed (0.5 -> 50% of max feed)")
     parser.add_argument('-F', '--feed_mult',  action="store", type=int,            required=False, default=60,                help="Number of seconds in unit of feed (60 -> feed specified per minute)")
@@ -305,6 +310,11 @@ def parse_args(parser):
         print("Unsupported colour mode selected")
         return
         
+    if args.bits_k == 0 or args.colour in ['grayscale', 'cmy']: args.bits_k = args.bits
+    if not 1 <= args.bits <= 8:
+        print("Only bit-depths between 1 and 8 bits per chunk are supported")
+        return
+        
     if not 0 < args.feed <= 2:
         print("Feed must be non-zero and no greater than 2.0 (200%)")
         return
@@ -343,7 +353,7 @@ if __name__ == "__main__":
         
         feed = {"xy": min(profile["max_feed"]["x"], profile["max_feed"]["y"]) * args.feed * args.feed_mult,             # compute the xy move feed according to the specified machine limits, requested feed and multiplier
                 "z": profile["max_feed"]["z"] * args.feed * args.feed_mult}                                             # ... also compute the z move feed
-        content = process_image(args.bits, args.colour, args.home, args.image, args.nudge, args.offset,                 # process image and generate main bulk of G-code
+        content = process_image(args.bits, args.bits_k, args.colour, args.home, args.image, args.nudge, args.offset,    # process image and generate main bulk of G-code
                                 args.resolution, args.size, args.zsafe, args.zdraw, feed, profile["max_size"])
         
         with open("sketch.gcode", "w") as gcode:                                                                        # open output file for writing
