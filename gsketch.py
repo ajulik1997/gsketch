@@ -123,8 +123,8 @@ def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, 
                                     box=(0, 0, x_step * (arr.shape[1] // x_step), y_step * (arr.shape[0] // y_step)))   # first, crop image to largest multiple of x- and y-step, removing a few pixels from the edges
                                     
     print( ">> Extracting final image array in CMYK mode")
-    arr_downscaled = np.asarray(img_downscaled.convert('CMYK'))                                                         # extract array from image in CMYK mode, array will be 3D and of shape (y, x, c) where c is one of the CMYK channels
-    arr_downscaled[:, :, 3] = 255 - np.asarray(img_downscaled.convert('L'))                                             # as CMYK mode leaves K empty, fill in K channel from grayscale image mode
+    arr_downscaled = np.fliplr(np.asarray(img_downscaled.convert('CMYK')))                                              # extract array from image in CMYK mode, array will be 3D and of shape (y, x, c) where c is one of the CMYK channels
+    arr_downscaled[:, :, 3] = 255 - np.fliplr(np.asarray(img_downscaled.convert('L')))                                  # as CMYK mode leaves K empty, fill in K channel from grayscale image mode
     print( "<< Per-channel limits identified as: C={} M={} Y={} K={}".format(*[(arr_downscaled[:, :, chan].min(), arr_downscaled[:, :, chan].max()) for chan in range(arr_downscaled.shape[2])]))
     print(f"<< Updated image array size to {arr_downscaled.shape}")
     
@@ -142,6 +142,7 @@ def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, 
         cmap = LinearSegmentedColormap.from_list(chan_props["name"], colours)                                           # construct matplotlib colourmap with the two RGBA colours at each end
         axes[chan_props["arr_idx"]].imshow(arr_downscaled[:, :, chan_props["arr_idx"]], cmap=cmap, clim=(0, 255))       # plot image of a single colour channel, using a colourmap of colours representing that channel
         axes[chan_props["arr_idx"]].set_title(f"{chan_props['name']} ({'ENABLED' if chan in active_channels else 'DISABLED'})")  # set title of the axis as colour name and enabled/disabled status
+        axes[chan_props["arr_idx"]].set_xlim(size['x'], 0)                                                              # correct x-axis range to account for "flipped" image (appears correctly on paper)
         axes[chan_props["arr_idx"]].set_xticks([])                                                                      # remove all x-ticks, they are simply chunk numbers which are not informative to the user
         axes[chan_props["arr_idx"]].set_yticks([])                                                                      # also remove all y-ticks
     plt.tight_layout()                                                                                                  # minimize border space in the figure
@@ -180,9 +181,11 @@ def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, 
         axes[row_id, 0].set_ylabel(lbl)                                                                                 # set row heading as y-label
     for chan_id, chan in enumerate(active_channels):                                                                    # iterate again over each channel key string
         axes[0, chan_id].imshow(arr_downscaled[:, :, chan_id], cmap="gist_yarg", clim=(0, 255))                         # the top row of axis will show each channel of the downscaled image array
+        axes[0, chan_id].set_xlim(size['x'], 0)                                                                         # invert image x axis to account for the "flipped" image array
         axes[1, chan_id].imshow(arr_nbit[:, :, chan_id], cmap="gist_yarg", clim=(0, 2**bits - 1))                       # the middle row will instead display the bit-depth-reduced arrays
+        axes[1, chan_id].set_xlim(size['x'], 0)                                                                         # as above, invert image x axis to account for "flipped" image array
         axes[2, chan_id].plot(x_pts[chan], y_pts[chan], marker=".", c="k", ms=1, alpha=1/3, ls=None, lw=0)              # for the final row, each computed point is drawn as a small circle with transparency
-        axes[2, chan_id].set_xlim(0, size['x'])                                                                         # x-limits for the final row are adjusted to match those produced by imshow
+        axes[2, chan_id].set_xlim(size['x'], 0)                                                                         # x-limits for the final row are adjusted to match those produced by imshow
         axes[2, chan_id].set_ylim(size['y'], 0)                                                                         # ... same for the y-limits
         axes[2, chan_id].set_aspect("equal")                                                                            # enforce equal aspect ratio so the dot-reconstructed image ins't stretched
     for row in axes:                                                                                                    # iterate over all axis (by first iterating over the outer array of the 2D arrays of axes)
@@ -197,7 +200,7 @@ def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, 
     for chan in active_channels:                                                                                        # iterate over active channels
         ax.plot(x_pts[chan], y_pts[chan], marker=".", c=channels[chan]["colour"], ms=1, alpha=1/3, ls=None, lw=0)       # for each channel, draw points of that colour
     ax.set_title("Full image reconstruction")                                                                           # set figure title
-    ax.set_xlim(0, size['x'])                                                                                           # set x-axis limits so that the resulting image is the right way up
+    ax.set_xlim(size['x'], 0)                                                                                           # set x-axis limits so that the resulting image is the right way up
     ax.set_ylim(size['y'], 0)                                                                                           # ... same for the y-axis
     ax.set_aspect("equal")                                                                                              # enforce equal aspect ratio so image isn't shown stretched
     ax.set_xticks([])                                                                                                   # disable x-ticks as mentioned in the above plotting routine
