@@ -255,7 +255,7 @@ def setup_argparse():
     parser = ArgumentParser(description="Script that converts images into gcode sketches")
     parser.add_argument('-0', '--home',       action="store", type=float, nargs=3, required=False, default=[40.0, 48.0, 2.0], help="Pen home coordinates [x, y, z]")
     parser.add_argument('-b', '--bits',       action="store", type=int,            required=False, default=3,                 help="Printed image bit-depth (draw up to 2**{bits} dots per chunk)")
-    parser.add_argument('-B', '--bits_k',     action="store", type=int,            required=False, default=2,                 help="Bit depth of K channel when printing CMYK (0 to use same value as --bits)")
+    parser.add_argument('-B', '--bits_k',     action="store", type=int,            required=False, default=1,                 help="Bit depth of K channel when printing CMYK (0 to use same value as --bits)")
     parser.add_argument('-c', '--colour',     action="store", type=str,            required=False, default="grayscale",       help="Colour mode in which image will be processed (one of ['grayscale', 'cmy', 'cmyk'])")
     parser.add_argument('-f', '--feed',       action="store", type=float,          required=False, default=1.0,               help="Move feed as a multiplier of max feed (0.5 -> 50% of max feed)")
     parser.add_argument('-F', '--feed_mult',  action="store", type=int,            required=False, default=60,                help="Number of seconds in unit of feed (60 -> feed specified per minute)")
