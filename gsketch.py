@@ -2,6 +2,7 @@ from argparse import ArgumentParser                                             
 from matplotlib.colors import LinearSegmentedColormap                                                                   # custom colourmaps for matplotlib
 from pathlib import Path                                                                                                # path manipulation tools
 from PIL import Image                                                                                                   # image manipulation tools
+from PIL import ImageEnhance                                                                                            # image enhancement and modification tools
 from tqdm import tqdm                                                                                                   # progress bar management
 
 import matplotlib.pyplot as plt
@@ -64,16 +65,17 @@ def generate_postamble(profile):
             
 ###############################################################################
             
-def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, size, zsafe, zdraw, feed, max_size):
+def process_image(bits, brightness, colour, home, image, k_bits, nudge, offset, resolution, size, zsafe, zdraw, feed, max_size):
     """
     Generates the main bulk of the G-code by processing image into a list of "dot" movements
     ----------
     args:
         bits        int                         number of bits per channel that will represent up top 2**{bits} shades per channel
-        bits_k      int                         number of bits for K channel if CMYK colour mode in use
+        brightness  float                       brightness value to be passed to PIL's ImageEnhance Brightness enhancer
         colour      str                         colour mode that determines which channels get printed, one of ['grayscale', 'cmy', 'cmyk']
         home        dict {str: float}           absolute coordinates in mm of the home position for the pen
         image       str                         string representing the absolute or relative path of the image to process
+        k_bits      int                         number of bits for K channel if CMYK colour mode in use
         nudge       float                       move the pen home of each channel away from the first channel's home by {nudge} mm
         offset      dict {str: float}           offset of image from pen home in mm
         resolution  float                       defines the minimum feature size of the printed image
@@ -88,7 +90,8 @@ def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, 
     """
     print(f"{'='*20} SETTINGS {'='*20}")                                                                                # print summary of settings: header
     print(f"BITS:          {bits} (up to {2**bits - 1:.0f} dots per channel per chunk)")                                # ... number of bits for representing colour, 2**bits gives total possible shades per channel
-    if colour == 'cmyk': print(f"BITS (K):      {bits_k} (up to {2**bits_k - 1:.0f} dots per chunk)")                   # ... number of bits for representing key channel colours if CMYK colour mode is used
+    if colour == 'cmyk': print(f"BITS (K):      {k_bits} (up to {2**k_bits - 1:.0f} dots per chunk)")                   # ... number of bits for representing key channel colours if CMYK colour mode is used
+    print(f"BRIGHTNESS:    {brightness} ({'+' if brightness >= 1 else ''}{(brightness - 1) * 100:.0f}%)")               # ... brightness adjustment settings as float recognised by PIL and percentage change
     print(f"COLOUR MODE:   {colour}")                                                                                   # ... colour mode, one of ['grayscale', 'cmy', 'cmyk']
     print(f"PEN HOME:      {home}")                                                                                     # ... coordinates of pen home in {'x': x, 'y': y, 'z': z} format
     print(f"COLOUR NUDGE:  {nudge} mm")                                                                                 # ... nudge of inidividual colour homes in mm
@@ -103,6 +106,10 @@ def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, 
         
     with Image.open(image) as img:                                                                                      # open image using PIL
         print(f">> Loading image {image}")
+        
+        print(f">> Performing brightness adjustment if requested (1.0 -> {brightness:.1f})")
+        brightness_enhancer = ImageEnhance.Brightness(img)                                                              # create instance of brightness enhancer for this image
+        img = brightness_enhancer.enhance(brightness)                                                                   # perform brightness enhancement
         
         print( ">> Extracting temporary image array in grayscale mode")
         arr = np.asarray(img.convert('L'))                                                                              # load image in grayscale mode to get 2D array size
@@ -128,10 +135,10 @@ def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, 
     print( "<< Per-channel limits identified as: C={} M={} Y={} K={}".format(*[(arr_downscaled[:, :, chan].min(), arr_downscaled[:, :, chan].max()) for chan in range(arr_downscaled.shape[2])]))
     print(f"<< Updated image array size to {arr_downscaled.shape}")
     
-    print(f">> Updating upper array limit (CMY: 255 -> {bits**2 - 1}, K: 255 -> {bits_k**2 - 1})")
+    print(f">> Updating upper array limit (CMY: 255 -> {bits**2 - 1}, K: 255 -> {k_bits**2 - 1})")
     arr_nbit = np.zeros_like(arr_downscaled, dtype=int)                                                                 # create empty array of ints with the same shape as the image array
     arr_nbit[:, :, :3] = np.floor(arr_downscaled[:, :, :3] / (256 / 2**bits))                                           # lower the per-chanel bit-depth of CMY channels to that specifed by {bits}
-    arr_nbit[:, :, 3] = np.floor(arr_downscaled[:, :, 3] / (256 / 2**bits_k))                                           # lower the per-chanel bit-depth of K channel to that specifed by {bits_k}
+    arr_nbit[:, :, 3] = np.floor(arr_downscaled[:, :, 3] / (256 / 2**k_bits))                                           # lower the per-chanel bit-depth of K channel to that specifed by {k_bits}
     print( "<< Updated image per-channel limits to C={} M={} Y={} K={}".format(*[(arr_nbit[:, :, chan].min(), arr_nbit[:, :, chan].max()) for chan in range(arr_nbit.shape[2])]))
 
     print( ">> Plotting individual CMYK channels")
@@ -258,11 +265,12 @@ def setup_argparse():
     parser = ArgumentParser(description="Script that converts images into gcode sketches")
     parser.add_argument('-0', '--home',       action="store", type=float, nargs=3, required=False, default=[40.0, 48.0, 2.0], help="Pen home coordinates [x, y, z]")
     parser.add_argument('-b', '--bits',       action="store", type=int,            required=False, default=3,                 help="Printed image bit-depth (draw up to 2**{bits} dots per chunk)")
-    parser.add_argument('-B', '--bits_k',     action="store", type=int,            required=False, default=1,                 help="Bit depth of K channel when printing CMYK (0 to use same value as --bits)")
+    parser.add_argument('-B', '--brightness', action="store", type=float,          required=False, default=1.0,               help="Modifies image brightness, where 1.0 gives the original image and 0.0 returns a fully black image")
     parser.add_argument('-c', '--colour',     action="store", type=str,            required=False, default="grayscale",       help="Colour mode in which image will be processed (one of ['grayscale', 'cmy', 'cmyk'])")
     parser.add_argument('-f', '--feed',       action="store", type=float,          required=False, default=1.0,               help="Move feed as a multiplier of max feed (0.5 -> 50% of max feed)")
     parser.add_argument('-F', '--feed_mult',  action="store", type=int,            required=False, default=60,                help="Number of seconds in unit of feed (60 -> feed specified per minute)")
     parser.add_argument('-i', '--image',      action="store", type=str,            required=True,                             help="Path to image file")
+    parser.add_argument('-k', '--k_bits',     action="store", type=int,            required=False, default=1,                 help="Bit depth of K channel when printing CMYK (0 to use same value as --bits)")
     parser.add_argument('-n', '--nudge',      action="store", type=float,          required=False, default=5,                 help="Offset of individual home colour markers in mm")
     parser.add_argument('-o', '--offset',     action="store", type=float, nargs=2, required=False, default=[20.0, 0.0],       help="Image offset from home in mm")
     parser.add_argument('-p', '--profile',    action="store", type=str,            required=False, default="prusa-mk3s+",     help="Printer profile to load")
@@ -309,13 +317,12 @@ def parse_args(parser):
         print("Only bit-depths between 1 and 8 bits per chunk are supported")
         return
         
-    if args.colour not in ['grayscale', 'cmy', 'cmyk']:
-        print("Unsupported colour mode selected")
+    if not 0.0 <= args.brightness <= 2.0:
+        print("Brightness must be specified to be between 0.0 and 2.0")
         return
         
-    if args.bits_k == 0 or args.colour in ['grayscale', 'cmy']: args.bits_k = args.bits
-    if not 1 <= args.bits <= 8:
-        print("Only bit-depths between 1 and 8 bits per chunk are supported")
+    if args.colour not in ['grayscale', 'cmy', 'cmyk']:
+        print("Unsupported colour mode selected")
         return
         
     if not 0 < args.feed <= 2:
@@ -324,6 +331,11 @@ def parse_args(parser):
     
     if not 0 < args.feed_mult <= (60*60):
         print("Feed multiplier must be non-zero and no greater than an hour (3600 seconds)")
+        return
+        
+    if args.k_bits == 0 or args.colour in ['grayscale', 'cmy']: args.k_bits = args.bits
+    if not 1 <= args.bits <= 8:
+        print("Only bit-depths between 1 and 8 bits per chunk are supported")
         return
         
     if not 0 <= args.nudge <= 10:
@@ -356,8 +368,10 @@ if __name__ == "__main__":
         
         feed = {"xy": min(profile["max_feed"]["x"], profile["max_feed"]["y"]) * args.feed * args.feed_mult,             # compute the xy move feed according to the specified machine limits, requested feed and multiplier
                 "z": profile["max_feed"]["z"] * args.feed * args.feed_mult}                                             # ... also compute the z move feed
-        content = process_image(args.bits, args.bits_k, args.colour, args.home, args.image, args.nudge, args.offset,    # process image and generate main bulk of G-code
-                                args.resolution, args.size, args.zsafe, args.zdraw, feed, profile["max_size"])
+        content = process_image(args.bits, args.brightness, args.colour, args.home, args.image, args.k_bits,            # process image and generate main bulk of G-code
+                                args.nudge, args.offset, args.resolution, args.size, args.zsafe, args.zdraw, feed,
+                                profile["max_size"])    
+                                
         
         with open("sketch.gcode", "w") as gcode:                                                                        # open output file for writing
             gcode.write("\n".join(preamble))                                                                            # write the preamble, separating each string by a newline
