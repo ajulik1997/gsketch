@@ -180,9 +180,9 @@ def process_image(bits, bits_k, colour, home, image, nudge, offset, resolution, 
     for row_id, lbl in enumerate(["Downscaled", "Adjusted depth", "Reconstruction"]):                                   # iterate over row heading labels
         axes[row_id, 0].set_ylabel(lbl)                                                                                 # set row heading as y-label
     for chan_id, chan in enumerate(active_channels):                                                                    # iterate again over each channel key string
-        axes[0, chan_id].imshow(arr_downscaled[:, :, chan_id], cmap="gist_yarg", clim=(0, 255))                         # the top row of axis will show each channel of the downscaled image array
+        axes[0, chan_id].imshow(arr_downscaled[:, :, channels[chan]["arr_idx"]], cmap="gist_yarg", clim=(0, 255))       # the top row of axis will show each channel of the downscaled image array
         axes[0, chan_id].set_xlim(size['x'], 0)                                                                         # invert image x axis to account for the "flipped" image array
-        axes[1, chan_id].imshow(arr_nbit[:, :, chan_id], cmap="gist_yarg", clim=(0, 2**bits - 1))                       # the middle row will instead display the bit-depth-reduced arrays
+        axes[1, chan_id].imshow(arr_nbit[:, :, channels[chan]["arr_idx"]], cmap="gist_yarg", clim=(0, 2**bits - 1))     # the middle row will instead display the bit-depth-reduced arrays
         axes[1, chan_id].set_xlim(size['x'], 0)                                                                         # as above, invert image x axis to account for "flipped" image array
         axes[2, chan_id].plot(x_pts[chan], y_pts[chan], marker=".", c="k", ms=1, alpha=1/3, ls=None, lw=0)              # for the final row, each computed point is drawn as a small circle with transparency
         axes[2, chan_id].set_xlim(size['x'], 0)                                                                         # x-limits for the final row are adjusted to match those produced by imshow
