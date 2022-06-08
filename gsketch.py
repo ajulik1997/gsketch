@@ -113,9 +113,15 @@ def process_image(bits, brightness, colour, home, image, k_bits, nudge, offset, 
         
         print( ">> Extracting temporary image array in grayscale mode")
         arr = np.asarray(img.convert('L'))                                                                              # load image in grayscale mode to get 2D array size
+        print(f"<< Loaded temporary array with shape {arr.shape}")
+        
+        for idx, dim in enumerate(['x', 'y']):                                                                          # iterate over the two image dimensions ...
+            if size[idx] > arr.shape[1 - idx]:                                                                          # ... checking for each that the target size isn't larger than the corresponding array dimension
+                print(f"!! WARNING: Less than one pixel per chunk in {dim}-dimension, adjusting ({size[idx]:.0f} -> {arr.shape[1 - idx]:.0f})")
+                size[idx] = arr.shape[1 - idx]                                                                          # ... if it is, warn the user and lower the target size to the corresponding array dimension size
+        
         size = {"x": size[0] if size[0] > 0 else (size[1] * (arr.shape[1] / arr.shape[0])),                             # update size: compute x size from image aspect ratio and y requirement if x=0
                 "y": size[1] if size[1] > 0 else (size[0] * (arr.shape[0] / arr.shape[1]))}                             # update size: compute y size from image aspecr ratio and x requirement if y=0
-        print(f"<< Loaded temporary array with shape {arr.shape}")
         print(f"<< Updated image size constraint to {size} mm")
         
         x_step = int(arr.shape[1] // (size['x'] / resolution))                                                          # compute the number of pixels in each x-step to achieve the target resolution
@@ -292,7 +298,7 @@ def parse_args(parser):
     """
     args = parser.parse_args()
 
-    if not Path(args.image).is_file() or Path(args.image).suffix.lower() not in [".jpg", ".png"]:
+    if not Path(args.image).is_file() or Path(args.image).suffix.lower() not in [".jpg", ".jpeg", ".png"]:
         print("The specified file does not exist or is not an image")
         return
         
