@@ -155,7 +155,7 @@ def process_image(bits, brightness, colour, home, image, k_bits, nudge, offset, 
         cmap = LinearSegmentedColormap.from_list(chan_props["name"], colours)                                           # construct matplotlib colourmap with the two RGBA colours at each end
         axes[chan_props["arr_idx"]].imshow(arr_downscaled[:, :, chan_props["arr_idx"]], cmap=cmap, clim=(0, 255))       # plot image of a single colour channel, using a colourmap of colours representing that channel
         axes[chan_props["arr_idx"]].set_title(f"{chan_props['name']} ({'ENABLED' if chan in active_channels else 'DISABLED'})")  # set title of the axis as colour name and enabled/disabled status
-        axes[chan_props["arr_idx"]].set_xlim(size['x'], 0)                                                              # correct x-axis range to account for "flipped" image (appears correctly on paper)
+        axes[chan_props["arr_idx"]].set_xlim(size['x'] / resolution, 0)                                                 # correct x-axis range to account for "flipped" image (appears correctly on paper)
         axes[chan_props["arr_idx"]].set_xticks([])                                                                      # remove all x-ticks, they are simply chunk numbers which are not informative to the user
         axes[chan_props["arr_idx"]].set_yticks([])                                                                      # also remove all y-ticks
     plt.tight_layout()                                                                                                  # minimize border space in the figure
@@ -194,9 +194,9 @@ def process_image(bits, brightness, colour, home, image, k_bits, nudge, offset, 
         axes[row_id, 0].set_ylabel(lbl)                                                                                 # set row heading as y-label
     for chan_id, chan in enumerate(active_channels):                                                                    # iterate again over each channel key string
         axes[0, chan_id].imshow(arr_downscaled[:, :, channels[chan]["arr_idx"]], cmap="gist_yarg", clim=(0, 255))       # the top row of axis will show each channel of the downscaled image array
-        axes[0, chan_id].set_xlim(size['x'], 0)                                                                         # invert image x axis to account for the "flipped" image array
+        axes[0, chan_id].set_xlim(size['x'] / resolution, 0)                                                            # invert image x axis to account for the "flipped" image array
         axes[1, chan_id].imshow(arr_nbit[:, :, channels[chan]["arr_idx"]], cmap="gist_yarg", clim=(0, 2**bits - 1))     # the middle row will instead display the bit-depth-reduced arrays
-        axes[1, chan_id].set_xlim(size['x'], 0)                                                                         # as above, invert image x axis to account for "flipped" image array
+        axes[1, chan_id].set_xlim(size['x'] / resolution, 0)                                                            # as above, invert image x axis to account for "flipped" image array
         axes[2, chan_id].plot(x_pts[chan], y_pts[chan], marker=".", c="k", ms=1, alpha=1/3, ls=None, lw=0)              # for the final row, each computed point is drawn as a small circle with transparency
         axes[2, chan_id].set_xlim(size['x'], 0)                                                                         # x-limits for the final row are adjusted to match those produced by imshow
         axes[2, chan_id].set_ylim(size['y'], 0)                                                                         # ... same for the y-limits
