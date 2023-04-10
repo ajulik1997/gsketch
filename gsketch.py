@@ -136,7 +136,7 @@ def process_image(bits, brightness, colour, home, image, k_bits, nudge, offset, 
                                     box=(0, 0, x_step * (arr.shape[1] // x_step), y_step * (arr.shape[0] // y_step)))   # first, crop image to largest multiple of x- and y-step, removing a few pixels from the edges
                                     
     print( ">> Extracting final image array in CMYK mode")
-    arr_downscaled = np.fliplr(np.asarray(img_downscaled.convert('CMYK')))                                              # extract array from image in CMYK mode, array will be 3D and of shape (y, x, c) where c is one of the CMYK channels
+    arr_downscaled = np.fliplr(np.array(img_downscaled.convert('CMYK')))                                                # extract array from image in CMYK mode, array will be 3D and of shape (y, x, c) where c is one of the CMYK channels
     arr_downscaled[:, :, 3] = 255 - np.fliplr(np.asarray(img_downscaled.convert('L')))                                  # as CMYK mode leaves K empty, fill in K channel from grayscale image mode
     print( "<< Per-channel limits identified as: C={} M={} Y={} K={}".format(*[(arr_downscaled[:, :, chan].min(), arr_downscaled[:, :, chan].max()) for chan in range(arr_downscaled.shape[2])]))
     print(f"<< Updated image array size to {arr_downscaled.shape}")

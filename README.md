@@ -6,7 +6,7 @@ This Python script converts image files into G-code that can be sent to a 3D-pri
 
 ## Prerequisites
 
-- Python 3.9+ (earlier version may work but have not been tested)
+- Python 3.11 (earlier version will likely work but have not been tested)
 - Required packages (`pip install -r requirements.txt`)
 - A 3D printer pen attachment of your choice
 - Card paper (normal paper works, but 180+ GSM paper is recommended to prevent paper warping and ink bleed)
